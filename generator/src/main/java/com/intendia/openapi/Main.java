@@ -2,8 +2,10 @@ package com.intendia.openapi;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Strings.emptyToNull;
+import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.base.Strings.nullToEmpty;
 import static java.lang.System.out;
+import static java.util.Optional.ofNullable;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toMap;
@@ -11,6 +13,7 @@ import static java.util.stream.Collectors.toMap;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.squareup.javapoet.AnnotationSpec;
+import com.squareup.javapoet.ArrayTypeName;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.FieldSpec;
 import com.squareup.javapoet.JavaFile;
@@ -62,17 +65,30 @@ public class Main {
             types.put(ref, new Def(className, schema));
         }
 
-        TypeName getTypeName(OpenApi.Parameter p) {
-            return getTypeName(p.type, p.$ref);
+        TypeName type(OpenApi.Parameter p) {
+            if (p.schema != null) return type(p.schema);
+            else {
+                final OpenApi.Schema schema = new OpenApi.Schema();
+                schema.type = p.type; schema.$ref = p.$ref;
+                return type(schema);
+            }
         }
 
-        TypeName getTypeName(String type, @Nullable String $ref) {
+        TypeName type(OpenApi.Response r) {
+            if (r.schema != null) return type(r.schema);
+            else return TypeName.VOID.box();
+        }
+
+        TypeName type(OpenApi.Schema schema) {
             TypeName pType = TypeName.OBJECT;
-            if (types.containsKey(nullToEmpty($ref))) {
-                pType = types.get($ref).name;
-            } else switch (nullToEmpty(type)) {
+            if (!isNullOrEmpty(schema.$ref)) {
+                pType = ofNullable(types.get(schema.$ref)).map(d -> d.name).orElse(ClassName.OBJECT);
+            } else switch (nullToEmpty(schema.type)) {
+                case "": pType = TypeName.VOID.box(); break;
                 case "string": pType = TypeName.get(String.class); break;
-                case "integer": pType = TypeName.get(Double.class); break;
+                case "integer": pType = TypeName.get(Number.class); break;
+                case "number": pType = TypeName.get(Number.class); break;
+                case "array": pType = ArrayTypeName.of(type(schema.items)); break;
             }
             return pType;
         }
@@ -80,23 +96,23 @@ public class Main {
         class Def {
             final ClassName name;
             final OpenApi.Schema schema;
-            final TypeSpec type;
             Def(ClassName name, OpenApi.Schema schema) {
                 this.name = name;
                 this.schema = schema;
-                TypeSpec.Builder builder = TypeSpec.classBuilder(name).addModifiers(Modifier.PUBLIC, Modifier.STATIC);
-                builder.addJavadoc("$L\n\n<pre>$L</pre>\n", firstNonNull(emptyToNull(schema.description), name),
-                        schema);
+            }
+            TypeSpec type() {
+                TypeSpec.Builder out = TypeSpec.classBuilder(name).addModifiers(Modifier.PUBLIC, Modifier.STATIC);
+                out.addJavadoc("$L\n\n<pre>$L</pre>\n", firstNonNull(emptyToNull(schema.description), name), schema);
                 schema.properties.entrySet().forEach(e -> {
                     String paramName = e.getKey();
                     OpenApi.Schema paramSchema = e.getValue();
                     String description = firstNonNull(emptyToNull(paramSchema.description), paramName);
-                    TypeName paramType = getTypeName(paramSchema.type, paramSchema.$ref);
-                    builder.addField(FieldSpec.builder(paramType, paramName, Modifier.PUBLIC)
+                    TypeName paramType = TypeResolver.this.type(paramSchema);
+                    out.addField(FieldSpec.builder(paramType, paramName, Modifier.PUBLIC)
                             .addJavadoc("$L\n\n<pre>$L</pre>\n", description, paramSchema)
                             .build());
                 });
-                this.type = builder.build();
+                return out.build();
             }
         }
     }
@@ -119,7 +135,7 @@ public class Main {
                 .addModifiers(Modifier.PUBLIC)
                 .addAnnotation(annotation(SuppressWarnings.class, "unused"))
                 .addAnnotation(annotation(Path.class, doc.basePath))
-                .addTypes(() -> resolver.types.values().stream().map(i -> i.type).iterator())
+                .addTypes(() -> resolver.types.values().stream().map(TypeResolver.Def::type).iterator())
                 .addMethods(() -> doc.paths.entrySet().stream()
                         .flatMap(pathEntry -> pathEntry.getValue().operations().entrySet().stream().map(operation -> {
                             String path = pathEntry.getKey();
@@ -134,9 +150,8 @@ public class Main {
                                     .addAnnotation(ClassName.get("javax.ws.rs", method))
                                     .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT)
                                     .addParameters(() -> operation.getValue().parameters(parameters::get).map(p -> {
-                                        TypeName pType = resolver.getTypeName(p);
                                         String pName = p.name.replace("-", "").replace(" ", "_");
-                                        ParameterSpec.Builder out = ParameterSpec.builder(pType, pName);
+                                        ParameterSpec.Builder out = ParameterSpec.builder(resolver.type(p), pName);
                                         AnnotationSpec annotation = null;
                                         switch (nullToEmpty(p.in)) {
                                             case "query": annotation = annotation(QueryParam.class, p.name); break;
@@ -151,20 +166,15 @@ public class Main {
                                     }).iterator())
                                     .returns(operation.getValue().responses
                                             .entrySet().stream().filter(e -> e.getKey().equals("200")).findAny()
-                                            .map(e -> {
-                                                OpenApi.Response response = e.getValue();
-                                                TypeName rType = TypeName.OBJECT;
-                                                if (response.schema != null && resolver.types
-                                                        .containsKey(nullToEmpty(response.schema.$ref))) {
-                                                    rType = resolver.types.get(response.schema.$ref).name;
-                                                }
-                                                return ParameterizedTypeName
-                                                        .get(ClassName.get(Observable.class), rType);
-                                            })
-                                            .orElseGet(() -> ParameterizedTypeName.get(Observable.class, Void.class)))
+                                            .map(e -> observable(resolver.type(e.getValue())))
+                                            .orElseGet(() -> observable(TypeName.VOID.box())))
                                     .build();
                         })).iterator())
                 .build();
+    }
+
+    private static ParameterizedTypeName observable(TypeName type) {
+        return ParameterizedTypeName.get(ClassName.get(Observable.class), type);
     }
 
     private static void checkUnsupportedSchemaUsage(OpenApi.Doc doc) {
