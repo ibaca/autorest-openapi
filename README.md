@@ -1,11 +1,14 @@
 # AutoREST OpenAPI Generator [![jitpack artifacts](https://jitpack.io/v/ibaca/autorest-openapi.svg)](https://jitpack.io/#ibaca/autorest-openapi)
 
-[JAX-RS][jaxrs] REST service interface generator for [Open API specification][openapi] (a.k.a. Swagger). This services
-can be used with AutoREST to create jre, android or GWT clients.
+[JAX-RS][jaxrs] REST service interface generator for [OpenAPI specification][openapi] (a.k.a. Swagger). This services
+can be used with [AutoREST][autorest] to create JRE, Android or GWT clients.
 
-Tested using [APIs Guru][apisguru-web] which can using an [API REST][apisguri-api] too. This project can consume any
-of this APIs to generate an AutoREST compatible JAX-RS service interface.
-  
+**Modules**
+* [APIs Guru][apisguru-web] public [API][apisguru-api], this gives access to 
+  an bunch of OpenAPI specs
+* OpenAPI API, to parse and process specs
+* OpenAPI to JAX-RS generator tool
+
 The project is under development, currently can be tested executing the [Main][main] class directly. 
 
 
@@ -13,5 +16,5 @@ The project is under development, currently can be tested executing the [Main][m
 [jaxrs]: https://jax-rs-spec.java.net/
 [openapi]: https://openapis.org/
 [apisguru-web]: https://apis.guru/
-[apisguru-api]: https://github.com/ibaca/autorest-apisguru/tree/master/api/src/main/java/com/intendia/gwt/openapi/ApisGuru.java
-[main]: https://github.com/ibaca/autorest-apisguru/tree/master/api/src/main/java/com/intendia/gwt/openapi/Main.java
+[apisguru-api]: https://github.com/ibaca/autorest-openapi/tree/master/api/src/main/java/com/intendia/openapi/ApisGuru.java
+[main]: https://github.com/ibaca/autorest-openapi/tree/master/generator/src/main/java/com/intendia/openapi/Main.java
