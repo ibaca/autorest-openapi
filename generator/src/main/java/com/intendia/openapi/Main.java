@@ -30,6 +30,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.logging.Logger;
@@ -40,6 +41,8 @@ import javax.ws.rs.HeaderParam;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
+import jsinterop.annotations.JsPackage;
+import jsinterop.annotations.JsType;
 import rx.Observable;
 import rx.Single;
 
@@ -120,6 +123,16 @@ public class Main {
     static boolean isObject(OpenApi.Schema schema) { return schema != null && "object".equals(schema.type); }
 
     static class TypeResolver {
+        enum Collection {
+            ARRAY {
+                @Override TypeName wrap(TypeName t) { return ArrayTypeName.of(t); }
+            },
+            LIST {
+                @Override TypeName wrap(TypeName t) { return ParameterizedTypeName.get(ClassName.get(List.class), t); }
+            };
+            abstract TypeName wrap(TypeName t);
+        }
+
         final Map<String, Def> types = new TreeMap<>();
 
         void put(String ref, ClassName className, OpenApi.Schema schema) {
@@ -127,15 +140,21 @@ public class Main {
         }
 
         TypeName type(OpenApi.Parameter p) {
-            if (p.schema != null) return type(p.schema);
+            if (p.schema != null) return type(p.schema, Collection.LIST);
             else {
                 final OpenApi.Schema schema = new OpenApi.Schema();
-                schema.type = p.type; schema.$ref = p.$ref;
-                return type(schema);
+                schema.$ref = p.$ref;
+                schema.type = p.type;
+                schema.format = p.format;
+                schema.description = p.description;
+                schema.enumValues = p.enumValues;
+                schema.items = p.items;
+                return type(schema, Collection.LIST);
             }
         }
 
-        TypeName type(@Nullable OpenApi.Schema schema) {
+        TypeName type(@Nullable OpenApi.Schema schema) {return type(schema, Collection.ARRAY);}
+        TypeName type(@Nullable OpenApi.Schema schema, final Collection arrayType) {
             TypeName pType = TypeName.OBJECT;
             if (schema == null) return pType;
             if (!isNullOrEmpty(schema.$ref)) {
@@ -145,7 +164,7 @@ public class Main {
                 case "string": pType = TypeName.get(String.class); break;
                 case "integer": pType = TypeName.get(Number.class); break;
                 case "number": pType = TypeName.get(Number.class); break;
-                case "array": pType = ArrayTypeName.of(type(schema.items)); break;
+                case "array": pType = arrayType.wrap(type(schema.items)); break;
             }
             return pType;
         }
@@ -159,6 +178,11 @@ public class Main {
             }
             TypeSpec type() {
                 TypeSpec.Builder out = TypeSpec.classBuilder(name).addModifiers(Modifier.PUBLIC, Modifier.STATIC);
+                out.addAnnotation(AnnotationSpec.builder(JsType.class)
+                        .addMember("isNative","$L", "true")
+                        .addMember("namespace","$T.$L", JsPackage.class, "GLOBAL")
+                        .addMember("name","$S", "Object")
+                        .build());
                 out.addJavadoc("$L\n\n<pre>$L</pre>\n", firstNonNull(emptyToNull(schema.description), name), schema);
                 schema.properties.entrySet().forEach(e -> {
                     String paramName = e.getKey();

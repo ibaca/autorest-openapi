@@ -309,6 +309,8 @@ public interface OpenApi {
         public String format;
         @JsonProperty("enum") public String[] enumValues;
 
+        public String description;
+
         @JsonProperty("default") public String defaultValue;
 
         public Schema items;
