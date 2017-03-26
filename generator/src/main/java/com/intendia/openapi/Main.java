@@ -4,7 +4,7 @@ import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Strings.emptyToNull;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.base.Strings.nullToEmpty;
-import static java.lang.System.out;
+import static java.util.Collections.emptyMap;
 import static java.util.Optional.ofNullable;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.joining;
@@ -12,6 +12,7 @@ import static java.util.stream.Collectors.toMap;
 
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
+import com.google.gson.Gson;
 import com.squareup.javapoet.AnnotationSpec;
 import com.squareup.javapoet.ArrayTypeName;
 import com.squareup.javapoet.ClassName;
@@ -23,7 +24,12 @@ import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.logging.Logger;
@@ -35,6 +41,7 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
 import rx.Observable;
+import rx.Single;
 
 public class Main {
     private static final Logger log = Logger.getLogger(Main.class.getName());
@@ -43,17 +50,71 @@ public class Main {
             () -> new JreResourceBuilder().path("https://api.apis.guru/"));
 
     public static void main(String[] args) throws Exception {
-        String api = "thetvdb.com";
-        APIS_GURU.spec(api, "2.1.1").doOnNext(doc -> {
-            try {
-                ClassName jaxRsTypeName = ClassName.get(api.replace(".", "_"), "Api");
-                TypeSpec jaxRsTypeSpec = openApi2JaxRs(jaxRsTypeName, doc);
-                JavaFile jaxRsFile = JavaFile.builder(jaxRsTypeName.packageName(), jaxRsTypeSpec).build();
-                jaxRsFile.writeTo(Paths.get("target"));
-            } catch (IOException e) {
-                throw Throwables.propagate(e);
-            }
-        }).subscribe();
+        Observable<SpecData> spec$ = null;
+        if (args.length != 1) { help(); return; }
+        if (args[0].equalsIgnoreCase("all")) spec$ = fetchAllSpecs(APIS_GURU);
+        if (args[0].contains("@")) spec$ = fetchSpec(APIS_GURU, SpecData.valueOf(args[0]));
+        if (args[0].contains(":")) spec$ = loadSpec(args[0]);
+        if (spec$ == null) { help(); return; }
+
+        spec$.subscribe(Main::generate);
+    }
+
+    private static void help() {
+        // eg 'thetvdb.com@2.1.1', or '~/Code/petstore.json'
+        System.out.println("gen [all|<api>@<version>|<uri>]");
+        System.out.println("all - fetch and generates all available APIs in https://api.apis.guru/");
+        System.out.println("<api>@<version> - fetch and generate the specified api/version");
+        System.out.println("    All available APIs here: https://api.apis.guru/v2/list.json");
+        System.out.println("<uri> - generate code for the specified openapi json, uri should start with '<scheme>:'");
+        System.out.println();
+        System.out.println("Examples:");
+        System.out.println("gen file:///Users/ibaca/Code/petstore.json");
+        System.out.println("gen http://petstore.swagger.io/v2/swagger.json");
+    }
+
+    private static void generate(SpecData spec) {
+        try {
+            ClassName jaxRsTypeName = ClassName.get(spec.name.replace(".", "_"), "Api");
+            TypeSpec jaxRsTypeSpec = openApi2JaxRs(jaxRsTypeName, spec.doc);
+            JavaFile jaxRsFile = JavaFile.builder(jaxRsTypeName.packageName(), jaxRsTypeSpec).build();
+            jaxRsFile.writeTo(Paths.get("target"));
+        } catch (IOException e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
+    public static class SpecData {
+        public String name;
+        public String version;
+        public OpenApi.Doc doc;
+        public SpecData() {}
+        public SpecData(String name, String version) { this.name = name; this.version = version; }
+        public SpecData doc(OpenApi.Doc doc) { this.doc = doc; return this; }
+        public static SpecData valueOf(String apiVersion) {
+            String[] split = apiVersion.split("@");
+            return new SpecData(split[0], split[1]);
+        }
+    }
+
+    public static Observable<SpecData> fetchAllSpecs(ApisGuru api) {
+        return api.list().flatMapIterable(HashMap::entrySet)
+                .map(entry -> new SpecData(entry.getKey(), entry.getValue().preferred))
+                .flatMap(spec -> fetchSpec(api, spec));
+    }
+
+    private static Observable<SpecData> fetchSpec(ApisGuru api, SpecData spec) {
+        return api.spec(spec.name.replace(":", "/"), spec.version).map(spec::doc).single();
+    }
+
+    private static Observable<SpecData> loadSpec(String uri) {
+        try (InputStream inputStream = new URI(uri).toURL().openStream()) {
+            SpecData spec = new SpecData("api", "0");
+            spec.doc = new Gson().fromJson(new InputStreamReader(inputStream), OpenApi.Doc.class);
+            return Observable.just(spec);
+        } catch (URISyntaxException | IOException e) {
+            return Observable.error(e);
+        }
     }
 
     static boolean isObject(OpenApi.Schema schema) { return schema != null && "object".equals(schema.type); }
@@ -74,13 +135,9 @@ public class Main {
             }
         }
 
-        TypeName type(OpenApi.Response r) {
-            if (r.schema != null) return type(r.schema);
-            else return TypeName.VOID.box();
-        }
-
-        TypeName type(OpenApi.Schema schema) {
+        TypeName type(@Nullable OpenApi.Schema schema) {
             TypeName pType = TypeName.OBJECT;
+            if (schema == null) return pType;
             if (!isNullOrEmpty(schema.$ref)) {
                 pType = ofNullable(types.get(schema.$ref)).map(d -> d.name).orElse(ClassName.OBJECT);
             } else switch (nullToEmpty(schema.type)) {
@@ -121,9 +178,9 @@ public class Main {
         log.info(doc.info.title);
 
         Map<String, OpenApi.Tag> tags = Stream.of(doc.tags).collect(toMap(t -> t.name, identity()));
-        Map<String, OpenApi.Parameter> parameters = doc.parameters;
+        Map<String, OpenApi.Parameter> parameters = firstNonNull(doc.parameters, emptyMap());
         TypeResolver resolver = new TypeResolver();
-        doc.definitions.entrySet()
+        if (doc.definitions != null) doc.definitions.entrySet()
                 .forEach(e -> resolver.put("#/definitions/" + e.getKey(), api.nestedClass(e.getKey()), e.getValue()));
         checkUnsupportedSchemaUsage(doc);
 
@@ -166,7 +223,13 @@ public class Main {
                                     }).iterator())
                                     .returns(operation.getValue().responses
                                             .entrySet().stream().filter(e -> e.getKey().equals("200")).findAny()
-                                            .map(e -> observable(resolver.type(e.getValue())))
+                                            .map(e -> {
+                                                OpenApi.Response response = e.getValue();
+                                                OpenApi.Schema s = response.schema;
+                                                if (s == null) return observable(TypeName.VOID.box());
+                                                if ("array".equals(s.type)) return observable(resolver.type(s.items));
+                                                else return single(resolver.type(s));
+                                            })
                                             .orElseGet(() -> observable(TypeName.VOID.box())))
                                     .build();
                         })).iterator())
@@ -175,6 +238,10 @@ public class Main {
 
     private static ParameterizedTypeName observable(TypeName type) {
         return ParameterizedTypeName.get(ClassName.get(Observable.class), type);
+    }
+
+    private static ParameterizedTypeName single(TypeName type) {
+        return ParameterizedTypeName.get(ClassName.get(Single.class), type);
     }
 
     private static void checkUnsupportedSchemaUsage(OpenApi.Doc doc) {
@@ -206,17 +273,5 @@ public class Main {
         if (path.startsWith("/")) path = path.substring(1, path.length());
         if (path.endsWith("/")) path = path.substring(0, path.length() - 1);
         return path;
-    }
-
-    private static void fetchAllSpecs() {
-        APIS_GURU.list().flatMap(api -> Observable.from(api.entrySet()))
-                .doOnNext(e -> {
-                    out.println(e.getKey() + ": " + e.getValue().versions.get(e.getValue().preferred).swaggerUrl);
-                    e.getValue().versions.entrySet().forEach(version -> out.println(" - " + version.getKey() + ": "
-                            + version.getValue().swaggerUrl + " (" + version.getValue().added + ")"));
-                })
-                .flatMap(e -> APIS_GURU.spec(e.getKey().replace(":", "/"), e.getValue().preferred))
-                .doOnNext(doc -> log.info(doc.info.title))
-                .subscribe();
     }
 }

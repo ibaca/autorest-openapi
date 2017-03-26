@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 public interface OpenApi {
 
@@ -62,19 +63,19 @@ public interface OpenApi {
         public Map<String, PathItem> paths;
 
         /** An object to hold data types produced and consumed by operations. */
-        public Map<String, Schema> definitions;
+        public @Nullable Map<String, Schema> definitions;
 
         /**
          * An object to hold parameters that can be used across operations. This property does not define global
          * parameters for all operations.
          */
-        public Map<String, Parameter> parameters;
+        public @Nullable Map<String, Parameter> parameters;
 
         /**
          * An object to hold responses that can be used across operations. This property does not define global
          * responses for all operations.
          */
-        public Map<String, Response> responses;
+        public @Nullable Map<String, Response> responses;
 
         /** Security scheme definitions that can be used across the specification. */
         public Security securityDefinitions;
@@ -385,8 +386,8 @@ public interface OpenApi {
         @JsonProperty("enum") public String[] enumValues;
         public String[] required;
         /** Required if type = 'array', null otherwise. */
-        public Schema items;
-        public Map<String, Schema> properties;
+        public @Nullable Schema items;
+        public @Nullable Map<String, Schema> properties;
         @Override public String toString() {
             return MoreObjects.toStringHelper(this)
                     .omitNullValues()
