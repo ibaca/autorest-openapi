@@ -26,8 +26,8 @@ import com.squareup.javapoet.TypeSpec;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
@@ -111,13 +111,23 @@ public class Main {
     }
 
     private static Observable<SpecData> loadSpec(String uri) {
-        try (InputStream inputStream = new URI(uri).toURL().openStream()) {
+        try (JsonConnection ctx = new JsonConnection((HttpURLConnection) new URI(uri).toURL().openConnection());
+                InputStream inputStream = ctx.connection.getInputStream()) {
             SpecData spec = new SpecData("api", "0");
             spec.doc = new Gson().fromJson(new InputStreamReader(inputStream), OpenApi.Doc.class);
             return Observable.just(spec);
-        } catch (URISyntaxException | IOException e) {
+        } catch (Exception e) {
             return Observable.error(e);
         }
+    }
+
+    static class JsonConnection implements AutoCloseable {
+        final HttpURLConnection connection;
+        JsonConnection(HttpURLConnection connection) {
+            this.connection = connection;
+            connection.setRequestProperty("Accept", "application/json");
+        }
+        @Override public void close() { connection.disconnect(); }
     }
 
     static boolean isObject(OpenApi.Schema schema) { return schema != null && "object".equals(schema.type); }
@@ -201,7 +211,7 @@ public class Main {
     private static TypeSpec openApi2JaxRs(ClassName api, OpenApi.Doc doc) throws IOException {
         log.info(doc.info.title);
 
-        Map<String, OpenApi.Tag> tags = Stream.of(doc.tags).collect(toMap(t -> t.name, identity()));
+        //Map<String, OpenApi.Tag> tags = Stream.of(doc.tags).collect(toMap(t -> t.name, identity()));
         Map<String, OpenApi.Parameter> parameters = firstNonNull(doc.parameters, emptyMap());
         TypeResolver resolver = new TypeResolver();
         if (doc.definitions != null) doc.definitions.entrySet()
