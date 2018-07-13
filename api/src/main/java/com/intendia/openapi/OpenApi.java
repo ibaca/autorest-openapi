@@ -78,14 +78,15 @@ public interface OpenApi {
         public @Nullable Map<String, Response> responses;
 
         /** Security scheme definitions that can be used across the specification. */
-        public Security securityDefinitions;
+        public @Nullable Map<String, SecurityDefinition> securityDefinitions;
 
         /**
          * A declaration of which security schemes are applied for the API as a whole. The list of values describes
-         * alternative security schemes that can be used (that is, there is a logical OR between the security
+         * security schemes that can be used
+         * This will be an array of maps. The array members will be OR'd and the map entries will be AND'ed
          * requirements). Individual operations can override this definition.
          */
-        public SecurityRequirement[] security;
+        public @Nullable Map<String, String[]>[] security;
         /**
          * A list of tags used by the specification with additional metadata. The order of the tags can be used to
          * reflect on their order by the parsing tools. Not all tags that are used by the Operation Object must be
@@ -261,12 +262,12 @@ public interface OpenApi {
         public boolean deprecated;
 
         /**
-         * A declaration of which security schemes are applied for this operation. The list of values describes
-         * alternative security schemes that can be used (that is, there is a logical OR between the security
-         * requirements). This definition overrides any declared top-level security. To remove a top-level security
-         * declaration, an empty array can be used.
+         * A declaration of which security schemes are applied for the API as a whole. The list of values describes
+         * security schemes that can be used
+         * This will be an array of maps. The array members will be OR'd and the map entries will be AND'ed
+         * requirements). Individual operations can override this definition.
          */
-        public SecurityRequirement[] security;
+        public @Nullable Map<String, String[]>[] security;
 
         @Override public String toString() {
             return MoreObjects.toStringHelper(this)
@@ -406,10 +407,19 @@ public interface OpenApi {
 
     @JsonInclude(NON_ABSENT) class Header {}
 
-    @JsonInclude(NON_ABSENT) class Security {}
-
-    @JsonInclude(NON_ABSENT) class SecurityRequirement {
-        @Override public String toString() { return MoreObjects.toStringHelper(this).toString(); }
+    //TODO: Add OAuth2 fields
+    @JsonInclude(NON_ABSENT) class SecurityDefinition {
+    	@JsonInclude(NON_EMPTY) public String type;
+    	public String in;
+    	public String name;
+        @Override public String toString() {
+            return MoreObjects.toStringHelper(this)
+                    .omitNullValues()
+                    .add("type", type)
+                    .add("in", in)
+                    .add("name", name	)
+                    .toString();
+        }
     }
 
     @JsonInclude(NON_ABSENT) class Tag {

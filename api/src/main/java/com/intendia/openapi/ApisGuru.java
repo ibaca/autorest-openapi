@@ -11,7 +11,7 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import jsinterop.annotations.JsPackage;
 import jsinterop.annotations.JsType;
-import rx.Observable;
+import io.reactivex.Observable;
 
 @AutoRestGwt @Path("v2")
 @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)

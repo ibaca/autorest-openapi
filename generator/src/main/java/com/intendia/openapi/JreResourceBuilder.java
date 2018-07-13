@@ -14,7 +14,7 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.util.Objects;
 import java.util.logging.Logger;
-import rx.Observable;
+import io.reactivex.Observable;
 
 public class JreResourceBuilder extends CollectorResourceVisitor {
     private static final Logger log = Logger.getLogger(JreResourceBuilder.class.getName());
@@ -61,7 +61,7 @@ public class JreResourceBuilder extends CollectorResourceVisitor {
             //noinspection unchecked
             return json.isJsonObject() ?
                     (T) Observable.just(gson.fromJson(json, type)) :
-                    (T) Observable.from(json.getAsJsonArray()).map(e -> gson.fromJson(e, type));
+                    (T) Observable.fromIterable(json.getAsJsonArray()).map(e -> gson.fromJson(e, type));
         } catch (IOException e) {
             throw new RuntimeException("receiving response error: " + e, e);
         }
