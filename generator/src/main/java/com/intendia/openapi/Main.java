@@ -145,21 +145,7 @@ public class Main {
                 @Override TypeName wrap(TypeName t) { return ArrayTypeName.of(t); }
             },
             LIST {
-                @Override TypeName wrap(TypeName t) {
-                	System.out.println("wrapping t '"+t.toString()+"'");
-                	switch(t.toString())
-                	{
-	                	case "int":
-	                	case "long":
-	                		t = t.box();
-	                    	System.out.println("wrapped int to '"+t.toString()+"'");
-	                		break;
-	            		default:
-	            			break;
-                	}
-                
-                	return ParameterizedTypeName.get(ClassName.get(List.class), t);
-                }
+                @Override TypeName wrap(TypeName t) { return ParameterizedTypeName.get(ClassName.get(List.class), t.box()); }
             };
             abstract TypeName wrap(TypeName t);
         }
