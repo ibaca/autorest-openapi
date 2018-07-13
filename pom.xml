@@ -51,17 +51,6 @@
 	            <artifactId>rxjava</artifactId>
 	            <version>${rxjava.version}</version>
 	        </dependency>
-	        <dependency>
-	            <groupId>com.intendia.gwt</groupId>
-	            <artifactId>rxjava2-gwt</artifactId>
-	            <version>${rxjava-gwt.version}</version>
-	        </dependency>
-	        <dependency>
-	            <groupId>com.intendia.gwt</groupId>
-	            <artifactId>rxjava2-gwt</artifactId>
-	            <version>${rxjava-gwt.version}</version>
-	            <classifier>sources</classifier>
-	        </dependency>
         </dependencies>
     </dependencyManagement>
 
