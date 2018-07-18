@@ -409,15 +409,15 @@ public interface OpenApi {
 
     //TODO: Add OAuth2 fields
     @JsonInclude(NON_ABSENT) class SecurityDefinition {
-    	@JsonInclude(NON_EMPTY) public String type;
-    	public String in;
-    	public String name;
+        @JsonInclude(NON_EMPTY) public String type;
+        public String in;
+        public String name;
         @Override public String toString() {
             return MoreObjects.toStringHelper(this)
                     .omitNullValues()
                     .add("type", type)
                     .add("in", in)
-                    .add("name", name	)
+                    .add("name", name)
                     .toString();
         }
     }

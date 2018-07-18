@@ -1,6 +1,7 @@
 package com.intendia.openapi;
 
 import com.intendia.gwt.autorest.client.AutoRestGwt;
+import io.reactivex.Observable;
 import java.util.HashMap;
 import java.util.Map;
 import javax.ws.rs.Consumes;
@@ -11,7 +12,6 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import jsinterop.annotations.JsPackage;
 import jsinterop.annotations.JsType;
-import io.reactivex.Observable;
 
 @AutoRestGwt @Path("v2")
 @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)

@@ -11,16 +11,10 @@ import static java.util.stream.Collectors.joining;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.gson.Gson;
-import com.intendia.gwt.autorest.client.AutoRestGwt;
-import com.intendia.gwt.autorest.client.IgnoreRest;
-import com.intendia.gwt.autorest.client.Security;
-import com.intendia.gwt.autorest.client.SecurityDefinition;
-import com.intendia.gwt.autorest.client.SecurityDefinition.Location;
-import com.intendia.gwt.autorest.client.SecurityDefinition.SecurityType;
+import com.intendia.gwt.autorest.client.JreResourceBuilder;
 import com.squareup.javapoet.AnnotationSpec;
 import com.squareup.javapoet.ArrayTypeName;
 import com.squareup.javapoet.ClassName;
-import com.squareup.javapoet.CodeBlock;
 import com.squareup.javapoet.FieldSpec;
 import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
@@ -28,20 +22,19 @@ import com.squareup.javapoet.ParameterSpec;
 import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
-
+import io.reactivex.Observable;
+import io.reactivex.Single;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import javax.lang.model.element.Modifier;
@@ -51,16 +44,13 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
 import jsinterop.annotations.JsPackage;
 import jsinterop.annotations.JsType;
-import io.reactivex.Observable;
-import io.reactivex.Single;
 
 public class Main {
     private static final Logger log = Logger.getLogger(Main.class.getName());
+    private static JreResourceBuilder createRequest() { return new JreResourceBuilder("https://api.apis.guru/"); }
+    public static final ApisGuru APIS_GURU = new ApisGuru_RestServiceModel(Main::createRequest);
 
-    public static final ApisGuru APIS_GURU = new ApisGuru_RestServiceModel(
-            () -> new JreResourceBuilder().path("https://api.apis.guru/"));
-
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         Observable<SpecData> spec$ = null;
         if (args.length != 1) { help(); return; }
         if (args[0].equalsIgnoreCase("all")) spec$ = fetchAllSpecs(APIS_GURU);
@@ -145,7 +135,9 @@ public class Main {
                 @Override TypeName wrap(TypeName t) { return ArrayTypeName.of(t); }
             },
             LIST {
-                @Override TypeName wrap(TypeName t) { return ParameterizedTypeName.get(ClassName.get(List.class), t.box()); }
+                @Override TypeName wrap(TypeName t) {
+                    return ParameterizedTypeName.get(ClassName.get(List.class), t.box());
+                }
             };
             abstract TypeName wrap(TypeName t);
         }
@@ -196,9 +188,9 @@ public class Main {
             TypeSpec type() {
                 TypeSpec.Builder out = TypeSpec.classBuilder(name).addModifiers(Modifier.PUBLIC, Modifier.STATIC);
                 out.addAnnotation(AnnotationSpec.builder(JsType.class)
-                        .addMember("isNative","$L", "true")
-                        .addMember("namespace","$T.$L", JsPackage.class, "GLOBAL")
-                        .addMember("name","$S", "Object")
+                        .addMember("isNative", "$L", "true")
+                        .addMember("namespace", "$T.$L", JsPackage.class, "GLOBAL")
+                        .addMember("name", "$S", "Object")
                         .build());
                 out.addJavadoc("$L\n\n<pre>$L</pre>\n", firstNonNull(emptyToNull(schema.description), name), schema);
                 schema.properties.entrySet().forEach(e -> {
@@ -215,7 +207,7 @@ public class Main {
         }
     }
 
-    private static TypeSpec openApi2JaxRs(ClassName api, OpenApi.Doc doc) throws IOException {
+    private static TypeSpec openApi2JaxRs(ClassName api, OpenApi.Doc doc) {
         log.info(doc.info.title);
 
         //Map<String, OpenApi.Tag> tags = Stream.of(doc.tags).collect(toMap(t -> t.name, identity()));
@@ -230,40 +222,12 @@ public class Main {
             System.out.println(oe.getKey() + " " + path.getKey() + " " + o);
         }));
 
-        Map<String, String[]> globalSecurity = (doc.security != null && doc.security.length > 0) ? doc.security[0] : null;
-        TypeSpec.Builder retSpec = TypeSpec.interfaceBuilder(api)
+        return TypeSpec.interfaceBuilder(api)
                 .addModifiers(Modifier.PUBLIC)
                 .addAnnotation(annotation(SuppressWarnings.class, "unused"))
-                .addAnnotation(annotation(Path.class, (doc.basePath != null) ? doc.basePath : ""));
-        
-        if(globalSecurity != null)
-        {
-        	AnnotationSpec.Builder aSpec = AnnotationSpec.builder(Security.class);
-        	
-        	globalSecurity.entrySet().stream()
-    			.forEach(entry -> {
-	    				OpenApi.SecurityDefinition sd = doc.securityDefinitions.get(entry.getKey());
-	    				if(sd == null)
-	    					return;
-						SecurityType type = SecurityType.fromString(sd.type);
-						Location loc = Location.fromString(sd.in);
-						aSpec.addMember("value",  "$L", AnnotationSpec.builder(SecurityDefinition.class)
-	    						.addMember("type", "$T.$L", SecurityType.class, type.name())
-	    						.addMember("location", "$T.$L", Location.class, loc.name())
-	    						.addMember("name", "\"$L\"", sd.name)
-    						.build());
-        			});
-        	retSpec.addAnnotation(aSpec.build());
-        }    
-        	
-        retSpec.addTypes(() -> resolver.types.values().stream().map(TypeResolver.Def::type).iterator())
-                .addMethod(MethodSpec.methodBuilder("setSecurityToken")
-                		.addAnnotation(IgnoreRest.class)
-                		.addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT)
-                		.addParameter(String.class, "tokenName")
-        				.addParameter(String.class, "tokenVal")
-        				.returns(TypeName.VOID)
-        				.build())
+                .addAnnotation(annotation(Path.class, doc.basePath))
+
+                .addTypes(() -> resolver.types.values().stream().map(TypeResolver.Def::type).iterator())
                 .addMethods(() -> doc.paths.entrySet().stream()
                         .flatMap(pathEntry -> pathEntry.getValue().operations().entrySet().stream().map(operation -> {
                             String path = pathEntry.getKey();
@@ -271,7 +235,7 @@ public class Main {
                             String oName = Stream.of((method.toLowerCase() + "/" + path).split("/"))
                                     .filter(s -> !(Strings.isNullOrEmpty(s) || s.startsWith("{")))
                                     .collect(joining("_"));
-                            MethodSpec.Builder methodSpec = MethodSpec.methodBuilder(oName)
+                            return MethodSpec.methodBuilder(oName)
                                     .addJavadoc("$L\n\n<pre>$L</pre>\n", operation.getValue().description,
                                             operation.getValue().toString())
                                     .addAnnotation(annotation(Path.class, path))
@@ -301,33 +265,11 @@ public class Main {
                                                 if ("array".equals(s.type)) return observable(resolver.type(s.items));
                                                 else return single(resolver.type(s));
                                             })
-                                            .orElseGet(() -> observable(TypeName.VOID.box())));
-                            if(operation.getValue().security != null) {
-                            	if(operation.getValue().security.length == 0) {
-                            		methodSpec.addAnnotation(AnnotationSpec.builder(Security.class).build());
-                            	}
-                            	else {
-                                	AnnotationSpec.Builder aSpec = AnnotationSpec.builder(Security.class);
-                            		operation.getValue().security[0].entrySet().stream()
-                                			.forEach(entry -> {
-                        	    				OpenApi.SecurityDefinition sd = doc.securityDefinitions.get(entry.getKey());
-                        	    				if(sd == null)
-                        	    					return;
-                        						SecurityType type = SecurityType.fromString(sd.type);
-                        						Location loc = Location.fromString(sd.in);
-                        						aSpec.addMember("value",  "$L", AnnotationSpec.builder(SecurityDefinition.class)
-                        	    						.addMember("type", "$T.$L", SecurityType.class, type.name())
-                        	    						.addMember("location", "$T.$L", Location.class, loc.name())
-                        	    						.addMember("name", "\"$L\"", sd.name)
-                            						.build());
-                                			});
-                                	methodSpec.addAnnotation(aSpec.build());
-                            	}
-                            }
-                            return methodSpec.build(); 
-                        })).iterator());
+                                            .orElseGet(() -> observable(TypeName.VOID.box())))
+                                    .build();
+                        })).iterator())
 
-        return retSpec.build();
+                .build();
     }
 
     private static ParameterizedTypeName observable(TypeName type) {
